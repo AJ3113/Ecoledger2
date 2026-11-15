@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#B0D68C">
+<title>Home - EcoLedger</title>
+<link rel="icon" href="data:,"><link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main>
+  <section class="card dark" aria-live="polite">
+    <div class="muted" style="color:#D6E6C7" id="who">&nbsp;</div>
+    <div style="display:flex;align-items:baseline;gap:8px;margin-top:6px">
+      <span class="big" id="bal">-</span><span style="font-weight:700;color:#D6E6C7">points</span>
+    </div>
+    <div style="margin-top:2px;color:var(--accent);font-weight:700" id="rs">&nbsp;</div>
+  </section>
+
+  <div class="quick" style="margin:12px 0">
+    <a class="btn" href="/scan"><span data-icon="scan" data-size="20"></span> Scan bus ticket</a>
+    <a class="btn ghost" href="/redeem"><span data-icon="redeem" data-size="20"></span> Redeem points</a>
+  </div>
+
+  <h2>Where your points come from</h2>
+  <div class="card" id="src"></div>
+
+  <h2>Recent activity</h2>
+  <div class="card" id="hist"></div>
+</main>
+<script src="/common.js"></script>
+<script>
+mountNav({ role: 'citizen', title: 'Home' });
+const SRC = {
+  bus: ['Electric bus', 'var(--c-bus)', 'bus'], waste: ['Waste segregation', 'var(--c-waste)', 'waste'],
+  solar: ['Rooftop solar', 'var(--c-solar)', 'solar'], redeem: ['Redeemed', 'var(--grey)', 'redeem'], bonus: ['Society bonus', 'var(--mid)', 'star'],
+};
+const src = (s) => SRC[s] || [s, 'var(--grey)', 'leaf'];
+let data = null;
+loadInto(document.getElementById('src'), async () => {
+  data = await api('/api/citizen/dashboard');
+  document.getElementById('who').textContent = `${data.user.name} · ${data.user.house_id} · ${data.user.ward}`;
+  document.getElementById('bal').textContent = data.balance.toLocaleString('en-IN');
+  document.getElementById('rs').textContent = `Worth ${money(data.balance)}`;
+  renderHistory();
+  return data.bySource.filter((s) => s.points > 0);
+}, (rows) => {
+  const total = rows.reduce((a, r) => a + r.points, 0);
+  return `<div class="sharebar" role="img" aria-label="Share of points by source">${rows.map((r) =>
+    `<span style="width:${(r.points / total * 100).toFixed(1)}%;background:${src(r.source)[1]}"></span>`).join('')}</div>
+    <div class="legend">${rows.map((r) => `<span><i style="background:${src(r.source)[1]}"></i>${esc(src(r.source)[0])} <b>${r.points}</b></span>`).join('')}</div>`;
+}, { rows: 1, empty: { icon: 'leaf', title: 'No points yet', text: 'Ride an electric bus and scan your ticket to earn your first points.', action: { label: 'Scan a ticket', href: '/scan' } } });
+
+function renderHistory() {
+  const el = document.getElementById('hist');
+  if (!data.history.length) { el.innerHTML = emptyState({ icon: 'ticket', title: 'Nothing yet', text: 'Your points will show up here as soon as you earn them.' }); hydrateIcons(el); return; }
+  el.innerHTML = data.history.map((h) => {
+    const [name, color, ic] = src(h.source);
+    return `<div class="row" style="align-items:center">
+      <span style="display:flex;gap:12px;align-items:center;min-width:0">
+        <span style="color:${color}">${icon(ic, 22)}</span>
+        <span><b>${esc(name)}</b><div class="muted">${esc(timeAgo(h.created_at))} ${chainBadge(h, data.explorer)}</div></span>
+      </span>
+      <b style="color:${h.points > 0 ? 'var(--good)' : 'var(--dark)'}">${h.points > 0 ? '+' : ''}${h.points}</b></div>`;
+  }).join('');
+}
+</script>
+</body></html>

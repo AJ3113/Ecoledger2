@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#B0D68C">
+<title>Department desk - EcoLedger</title>
+<link rel="icon" href="data:,"><link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main>
+  <h1>Department desk</h1>
+  <p class="muted">Check a citizen's redemption code and mark it as used once you have applied the discount.</p>
+
+  <section id="keybox" class="card" hidden>
+    <h2 style="margin-top:0">Unlock this desk</h2>
+    <form id="keyform" novalidate>
+      <div class="field" style="margin-top:0">
+        <label for="key">Desk key</label>
+        <div class="input-wrap">
+          <input id="key" type="password" autocomplete="off" aria-describedby="key-error">
+          <button type="button" class="pw-toggle" data-pw-toggle="key" aria-pressed="false">Show</button>
+        </div>
+        <div class="hint">Your department gives you this key. It is remembered until you close this tab.</div>
+        <div class="error" id="key-error" role="alert"></div>
+      </div>
+      <button class="btn" id="keybtn" type="submit">Unlock</button>
+    </form>
+  </section>
+
+  <section id="desk" hidden>
+    <form id="lookform" class="card" novalidate>
+      <div class="field" style="margin-top:0">
+        <label for="code">Redemption code</label>
+        <input id="code" placeholder="TR-12345" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-describedby="code-error">
+        <div class="error" id="code-error" role="alert"></div>
+      </div>
+      <div class="alert error" id="err" role="alert" hidden></div>
+      <button class="btn" id="look" type="submit"><span data-icon="qr" data-size="20"></span> Look up</button>
+    </form>
+    <div id="found" aria-live="polite"></div>
+
+    <h2>Recent codes</h2>
+    <div class="pills" id="filters" role="group" aria-label="Filter by department"></div>
+    <div id="list" style="margin-top:8px"></div>
+    <button class="btn ghost" id="lockbtn" type="button" style="margin-top:16px">Lock this desk</button>
+  </section>
+</main>
+<script src="/common.js"></script>
+<script>
+mountNav({ title: 'Department desk', links: [{ label: 'Home', href: '/' }] });
+const $ = (i) => document.getElementById(i);
+const getKey = () => { try { return sessionStorage.getItem('deptKey') || ''; } catch (e) { return ''; } };
+const setKey = (v) => { try { v ? sessionStorage.setItem('deptKey', v) : sessionStorage.removeItem('deptKey'); } catch (e) { /* storage blocked */ } };
+const call = (path, body) => api(path, { noRedirect: true, headers: { 'x-dept-key': getKey() }, ...(body ? { body } : {}) });
+const DEPT = { transit: 'Transit fare', water: 'Water tax', electricity: 'Electricity bill' };
+const ST = { applied: ['Used', 'applied'], pending: ['Ready to use', 'partial'], expired: ['Expired', 'poor'] };
+const day = (s) => new Date(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+let dept = '';
+
+function locked(msg) { setKey(''); $('keybox').hidden = false; $('desk').hidden = true; setFieldError('key', msg || ''); }
+const isAuth = (e) => e.status === 401;
+
+function codeCard(r, big) {
+  const [label, cls] = ST[r.status] || [r.status, 'pending'];
+  return `<div class="card">
+    <div class="row" style="border:0;padding:0;align-items:center"><b class="mono" style="${big ? 'font-size:1.5rem' : ''}">${esc(r.code)}</b><span class="chip ${cls}">${esc(label)}</span></div>
+    <div style="margin-top:4px">${esc(DEPT[r.department] || r.department)} &middot; ${r.points} points &middot; <b>Rs ${esc(r.rupee_value)}</b></div>
+    <div class="muted">Issued ${esc(day(r.created_at))} &middot; valid until ${esc(day(r.expires_at))}</div>
+    ${r.status === 'pending' ? `<button class="btn" type="button" style="margin-top:10px" data-apply="${esc(r.code)}">Mark as used (Rs ${esc(r.rupee_value)})</button>` : ''}
+    ${r.status === 'applied' && big ? '<div class="alert info" style="margin-top:10px">This code has already been used. Do not give a discount.</div>' : ''}
+    ${r.status === 'expired' && big ? '<div class="alert error" style="margin-top:10px">This code has expired. Do not give a discount.</div>' : ''}
+  </div>`;
+}
+function drawFilters() {
+  $('filters').innerHTML = [['', 'All'], ['transit', 'Transit'], ['water', 'Water'], ['electricity', 'Electricity']]
+    .map(([k, l]) => `<button type="button" class="pill" data-d="${k}" aria-pressed="${k === dept}">${l}</button>`).join('');
+}
+function refresh() {
+  return loadInto($('list'), async () => {
+    try { const rows = await call('/api/dept/codes' + (dept ? '?department=' + dept : '')); $('keybox').hidden = true; $('desk').hidden = false; return rows; }
+    catch (e) { if (isAuth(e)) { locked('That key is not right. Check it and try again.'); return []; } throw e; }
+  }, (rows) => rows.map((r) => codeCard(r, false)).join(''), { rows: 3, empty: { icon: 'ticket', title: 'No codes yet', text: 'Codes appear here when citizens redeem their points.' } });
+}
+$('filters').addEventListener('click', (e) => { const b = e.target.closest('[data-d]'); if (!b) return; dept = b.dataset.d; drawFilters(); refresh(); });
+
+async function applyCode(code, btn) {
+  const yes = await confirmModal(`Mark ${code} as used? Only do this after you have given the discount. It cannot be undone.`, { title: 'Mark as used', confirmText: 'Yes, mark as used' });
+  if (!yes) return;
+  await withBusy(btn, async () => {
+    try { await call('/api/dept/apply', { code }); toast(`${code} marked as used`, 'success'); $('found').innerHTML = ''; }
+    catch (e) { if (isAuth(e)) return locked('Your key was rejected. Enter it again.'); toast(e.message, 'error'); }
+    await refresh();
+  });
+}
+document.addEventListener('click', (e) => { const b = e.target.closest('[data-apply]'); if (b) applyCode(b.dataset.apply, b); });
+
+$('code').addEventListener('input', () => { setFieldError('code', ''); $('err').hidden = true; });
+$('lookform').addEventListener('submit', async (e) => {
+  e.preventDefault(); $('err').hidden = true; $('found').innerHTML = '';
+  const c = $('code').value.trim().toUpperCase(); $('code').value = c;
+  if (!/^(TR|WA|EL)-\d{5}$/.test(c)) { setFieldError('code', 'A code looks like TR-12345, WA-12345 or EL-12345.'); $('code').focus(); return; }
+  await withBusy($('look'), async () => {
+    try { $('found').innerHTML = codeCard(await call('/api/dept/codes/' + encodeURIComponent(c)), true); }
+    catch (x) { if (isAuth(x)) return locked('Your key was rejected. Enter it again.'); $('err').textContent = x.status === 404 ? 'No such code. Check it and try again.' : x.message; $('err').hidden = false; }
+  });
+});
+$('keyform').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const v = $('key').value.trim();
+  if (!v) { setFieldError('key', 'Enter the desk key.'); $('key').focus(); return; }
+  setKey(v); $('key').value = '';
+  await withBusy($('keybtn'), async () => { drawFilters(); await refresh(); });
+});
+$('key').addEventListener('input', () => setFieldError('key', ''));
+$('lockbtn').onclick = () => { locked(''); $('found').innerHTML = ''; toast('Desk locked', 'info'); };
+drawFilters();
+if (getKey()) refresh(); else locked('');
+</script>
+</body></html>

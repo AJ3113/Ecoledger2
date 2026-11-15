@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#B0D68C">
+<title>Review - EcoLedger</title>
+<link rel="icon" href="data:,"><link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main>
+  <h1 id="title">Review house</h1>
+  <p class="muted" id="addr">&nbsp;</p>
+
+  <form id="f" novalidate hidden>
+    <p class="muted">Tick everything the household did correctly.</p>
+    <label class="tog"><input type="checkbox" id="c1"><span class="mark" data-icon="check" data-size="20"></span>Wet and dry waste kept separate</label>
+    <label class="tog"><input type="checkbox" id="c2"><span class="mark" data-icon="check" data-size="20"></span>No plastic in the wet waste</label>
+    <label class="tog"><input type="checkbox" id="c3"><span class="mark" data-icon="check" data-size="20"></span>No hazardous waste</label>
+
+    <div class="card" style="text-align:center" aria-live="polite">
+      <div class="muted">This visit will be marked</div>
+      <div style="margin-top:6px"><span class="chip poor" id="res" style="font-size:1.1rem;padding:6px 18px">Poor</span></div>
+    </div>
+
+    <div class="field">
+      <label for="remark">Remark (optional)</label>
+      <textarea id="remark" rows="3" maxlength="300" placeholder="e.g. plastic found in the wet bin"></textarea>
+      <div class="hint">The household can see this note.</div>
+    </div>
+    <div class="alert error" id="err" role="alert" hidden></div>
+    <button class="btn" id="submit" type="submit">Submit review</button>
+  </form>
+
+  <div id="done" class="card welcome" hidden></div>
+  <div id="state"></div>
+</main>
+<script src="/common.js"></script>
+<script>
+mountNav({ role: 'collector', title: 'Review house', back: '/collector/' });
+const $ = (i) => document.getElementById(i);
+const visit = Number(new URLSearchParams(location.search).get('visit'));
+const NAME = { good: 'Good', partial: 'Partly sorted', poor: 'Needs work' };
+const ids = ['c1', 'c2', 'c3'];
+function result() { const f = ids.filter((i) => !$(i).checked).length; return f === 0 ? 'good' : f === 1 ? 'partial' : 'poor'; }
+function show() { const r = result(); $('res').className = 'chip ' + r; $('res').textContent = NAME[r]; }
+ids.forEach((i) => $(i).addEventListener('change', show)); show();
+
+function backButtons() {
+  return `<div class="btn-row"><a class="btn ghost" href="/collector/">Back to list</a><a class="btn" href="/collector/scan">Scan next house</a></div>`;
+}
+(async () => {
+  if (!Number.isInteger(visit) || visit <= 0) { $('state').innerHTML = emptyState({ icon: 'alert', title: 'No visit selected', text: 'Open a house from your list first.', action: { label: 'Back to list', href: '/collector/' } }); hydrateIcons($('state')); return; }
+  $('state').innerHTML = skeleton(3);
+  try {
+    const v = await api(`/api/collector/visits/${visit}`);
+    $('title').textContent = `Review ${v.house_id}`; $('addr').textContent = v.address;
+    $('state').innerHTML = '';
+    if (v.status !== 'visited') { $('state').innerHTML = `<div class="card welcome"><div class="big-ic">${icon('check', 36)}</div><h2>Already reviewed</h2><p class="muted">This visit has already been submitted.</p>${backButtons()}</div>`; return; }
+    $('f').hidden = false; hydrateIcons($('f'));
+  } catch (e) {
+    $('state').innerHTML = errorState(e.status === 404 ? 'We could not find that visit. It may belong to another collector.' : e.message);
+    const b = $('state').querySelector('[data-retry]'); if (b) b.onclick = () => location.reload();
+  }
+})();
+
+$('f').addEventListener('submit', async (e) => {
+  e.preventDefault(); $('err').hidden = true;
+  await withBusy($('submit'), async () => {
+    try {
+      const r = await api('/api/collector/review', { body: {
+        visit_id: visit, remark: $('remark').value,
+        checklist: { separated: $('c1').checked, no_plastic_in_wet: $('c2').checked, no_hazardous: $('c3').checked },
+      } });
+      $('f').hidden = true; $('done').hidden = false;
+      $('done').innerHTML = `<div class="big-ic">${icon('check', 36)}</div><h2>Review saved</h2>
+        <p><span class="chip ${esc(r.result)}">${esc(NAME[r.result])}</span></p>
+        <p>${r.points} points awarded to the household.</p>${backButtons()}`;
+      toast('Review submitted', 'success');
+    } catch (x) { $('err').textContent = x.message; $('err').hidden = false; }
+  });
+});
+</script>
+</body></html>

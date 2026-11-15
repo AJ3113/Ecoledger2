@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#B0D68C">
+<title>Scan house - EcoLedger</title>
+<link rel="icon" href="data:,"><link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main>
+  <h1>Scan house QR</h1>
+  <p class="muted">Point the camera at the QR sticker on the house, or type the house ID.</p>
+
+  <div class="viewfinder">
+    <div id="reader" style="width:100%;height:100%"></div>
+    <div class="frame" id="frame" style="visibility:hidden"></div>
+    <div class="hint" id="vf-hint">Camera is off</div>
+  </div>
+  <button class="btn" id="start" type="button" style="margin-top:12px"><span data-icon="scan" data-size="20"></span> Start camera</button>
+  <div class="alert info" id="cam-msg" hidden role="status"></div>
+
+  <div class="card">
+    <div class="field" style="margin-top:0">
+      <label for="manual">House ID</label>
+      <input id="manual" placeholder="H-1001" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-describedby="manual-error">
+      <div class="error" id="manual-error" role="alert"></div>
+    </div>
+    <button class="btn ghost" id="send" type="button">Open house</button>
+  </div>
+  <div class="alert error" id="err" role="alert" hidden></div>
+</main>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="/common.js"></script>
+<script>
+mountNav({ role: 'collector', title: 'Scan house', back: '/collector/' });
+const $ = (i) => document.getElementById(i);
+let busy = false, scanner = null;
+const known = {
+  'Unknown house': 'We could not find that house. Check the ID and try again.',
+  'This house is not in your ward': 'That house belongs to another ward.',
+  'This house was already reviewed today': 'This house has already been reviewed today.',
+  'Another collector already scanned this house today': 'Another collector has already started this house today.',
+};
+function showErr(msg) { $('err').textContent = msg; $('err').hidden = !msg; }
+
+async function openHouse(raw) {
+  if (busy) return; busy = true; showErr('');
+  const id = String(raw).trim().toUpperCase();
+  if (!/^H-\d{4}$/.test(id)) { setFieldError('manual', 'A house ID looks like H-1001.'); busy = false; $('manual').focus(); return; }
+  try {
+    const r = await api('/api/collector/scan', { body: { house_id: id } });
+    if (scanner) { try { await scanner.stop(); } catch (e) { /* ignore */ } }
+    location.href = `/collector/review?visit=${r.visit_id}`;
+    return 'keep';
+  } catch (e) {
+    showErr(known[e.message] || e.message);
+    setTimeout(() => (busy = false), 1500);
+  }
+}
+$('manual').addEventListener('input', () => { setFieldError('manual', ''); showErr(''); });
+$('manual').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('send').click(); } });
+$('send').onclick = (e) => withBusy(e.currentTarget, async () => { const r = await openHouse($('manual').value); return r; });
+$('start').onclick = async () => {
+  $('cam-msg').hidden = true;
+  if (typeof Html5Qrcode === 'undefined') { $('cam-msg').textContent = 'The camera scanner could not load. Type the house ID instead.'; $('cam-msg').hidden = false; return; }
+  try {
+    $('start').hidden = true; $('vf-hint').textContent = 'Starting camera...';
+    scanner = new Html5Qrcode('reader');
+    await scanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: 240 }, (txt) => openHouse(txt), () => {});
+    $('frame').style.visibility = 'visible'; $('vf-hint').textContent = 'Hold the QR code inside the frame';
+  } catch (e) {
+    scanner = null; $('start').hidden = false; $('vf-hint').textContent = 'Camera is off';
+    $('cam-msg').textContent = 'We could not open the camera. Allow camera access, or type the house ID.'; $('cam-msg').hidden = false;
+  }
+};
+</script>
+</body></html>

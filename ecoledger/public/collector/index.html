@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#B0D68C">
+<title>Collector - EcoLedger</title>
+<link rel="icon" href="data:,"><link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main style="padding-bottom:96px">
+  <h1 id="title">Today's houses</h1>
+  <div id="progress"></div>
+
+  <div id="pending-wrap" hidden>
+    <h2>Waiting for your review</h2>
+    <div id="pending"></div>
+  </div>
+
+  <h2>Houses in your ward</h2>
+  <div class="pills" id="filters" role="group" aria-label="Filter houses" hidden></div>
+  <div id="houses" style="margin-top:8px"></div>
+  <a class="btn fab" href="/collector/scan"><span data-icon="scan" data-size="20"></span> Scan house</a>
+</main>
+<script src="/common.js"></script>
+<script>
+mountNav({ role: 'collector', title: 'Today\'s houses' });
+const $ = (i) => document.getElementById(i);
+const ST = { todo: ['To visit', 'pending'], visited: ['Needs review', 'partial'], completed: ['Done', 'good'] };
+const time = (s) => new Date(s).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+let all = [], filter = 'all';
+
+function drawProgress() {
+  const done = all.filter((h) => h.status === 'completed').length, total = all.length;
+  $('progress').innerHTML = total ? `<div class="card"><div class="row" style="border:0;padding:0;align-items:baseline"><b>${done} of ${total} houses done</b><span class="muted">${total - done} left</span></div>
+    <div class="progress" style="margin-top:8px" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${done}"><span style="width:${(done / total * 100).toFixed(0)}%"></span></div></div>` : '';
+}
+function drawHouses() {
+  const rows = all.filter((h) => filter === 'all' || h.status === filter);
+  const el = $('houses');
+  if (!rows.length) { el.innerHTML = emptyState({ icon: 'building', title: 'No houses here', text: filter === 'all' ? 'No houses are registered in your ward.' : 'Nothing matches this filter.' }); hydrateIcons(el); return; }
+  el.innerHTML = rows.map((h) => {
+    const [label, cls] = ST[h.status];
+    const act = h.status === 'todo' ? `<button class="btn ghost sm" type="button" data-start="${esc(h.house_id)}">Start visit</button>`
+      : h.status === 'visited' ? `<a class="btn sm" href="/collector/review?visit=${h.visit_id}">Review</a>` : '';
+    return `<div class="card" style="margin:8px 0"><div class="row" style="border:0;padding:0;align-items:center"><span><b>${esc(h.house_id)}</b><div class="muted">${esc(h.address)}</div></span><span class="chip ${cls}">${label}</span></div>${act}</div>`;
+  }).join('');
+}
+function drawFilters() {
+  const n = (s) => all.filter((h) => s === 'all' || h.status === s).length;
+  $('filters').hidden = false;
+  $('filters').innerHTML = [['all', 'All'], ['todo', 'To visit'], ['visited', 'Needs review'], ['completed', 'Done']]
+    .map(([k, l]) => `<button type="button" class="pill" data-f="${k}" aria-pressed="${k === filter}">${l} (${n(k)})</button>`).join('');
+}
+$('filters').addEventListener('click', (e) => { const b = e.target.closest('[data-f]'); if (!b) return; filter = b.dataset.f; drawFilters(); drawHouses(); });
+$('houses').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-start]'); if (!b) return;
+  await withBusy(b, async () => {
+    try { const r = await api('/api/collector/scan', { body: { house_id: b.dataset.start } }); location.href = `/collector/review?visit=${r.visit_id}`; return 'keep'; }
+    catch (x) { toast(x.message, 'error'); await load(); }
+  });
+});
+
+function load() {
+  return loadInto($('houses'), async () => {
+    const d = await api('/api/collector/houses');
+    document.getElementById('title').textContent = `${d.ward}: today's houses`;
+    all = d.houses;
+    $('pending-wrap').hidden = !d.pending.length;
+    $('pending').innerHTML = d.pending.map((p) => `<div class="card row" style="align-items:center;margin:8px 0"><span><b>${esc(p.house_id)}</b><div class="muted">Visited ${esc(time(p.visited_at))}</div></span><a class="btn sm" href="/collector/review?visit=${p.visit_id}">Review</a></div>`).join('');
+    drawProgress(); drawFilters();
+    return all;
+  }, () => { drawHouses(); return $('houses').innerHTML; }, { rows: 4, empty: { icon: 'building', title: 'No houses in your ward', text: 'Ask an administrator to add households.' } });
+}
+load();
+</script>
+</body></html>

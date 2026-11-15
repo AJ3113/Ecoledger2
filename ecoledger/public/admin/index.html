@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#B0D68C">
+<title>Admin - EcoLedger</title>
+<link rel="icon" href="data:,"><link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="admin-shell">
+  <nav class="sidebar" id="side" aria-label="Admin sections"></nav>
+  <main class="admin-main" id="main">
+
+    <section id="sec-overview" data-sec="overview">
+      <h1>Overview</h1>
+      <div id="kpis"></div>
+      <h2>Waste results by ward</h2>
+      <div class="card" id="ward"></div>
+      <h2>Society bonus</h2>
+      <div class="card">
+        <p class="muted" style="margin-top:0">Credits every household in a society that kept enough houses "good" this month. Safe to run twice: nobody is paid twice for the same month.</p>
+        <button class="btn auto" id="bonus" type="button">Run society bonus</button>
+        <div id="bonus-out" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section id="sec-alerts" data-sec="alerts" hidden>
+      <h1>Alerts</h1>
+      <h2>Visited but not reviewed</h2><div class="card" id="a-unrev"></div>
+      <h2>Contested marks</h2><div class="card" id="a-cont"></div>
+      <h2>Collectors who mark almost everyone "good"</h2>
+      <p class="muted">Collectors with over 90% good marks across 10 or more visits.</p>
+      <div class="card" id="a-skew"></div>
+    </section>
+
+    <section id="sec-solar" data-sec="solar" hidden>
+      <h1>Solar approvals</h1>
+      <div id="solar"></div>
+    </section>
+
+    <section id="sec-households" data-sec="households" hidden>
+      <h1>Households and QR</h1>
+      <p class="muted">Each house has a QR sticker for collectors and a claim code the resident uses to register.</p>
+      <a class="btn auto" href="/admin/qr" target="_blank" rel="noopener"><span data-icon="printer" data-size="18"></span> Open printable QR sheet</a>
+      <div id="houses" style="margin-top:14px"></div>
+    </section>
+
+    <section id="sec-settings" data-sec="settings" hidden>
+      <h1>Settings</h1>
+      <p class="muted">These values apply straight away to everyone. Past points are never changed.</p>
+      <form id="cfg" novalidate><div id="cfgfields"></div>
+        <div class="alert error" id="cfg-err" role="alert" hidden></div>
+        <button class="btn auto" id="cfg-save" type="submit" disabled>Save settings</button>
+      </form>
+    </section>
+
+    <section id="sec-blockchain" data-sec="blockchain" hidden>
+      <h1>Blockchain</h1>
+      <div class="kpis" id="chain-kpi"></div>
+      <h2>Actions</h2>
+      <div class="card">
+        <p class="muted" style="margin-top:0"><b>Retry pending</b> sends points that did not reach the blockchain yet. It only touches rows older than one minute.</p>
+        <button class="btn ghost auto" id="retry" type="button"><span data-icon="refresh" data-size="18"></span> Retry pending rows</button>
+        <p class="muted"><b>Daily anchor</b> writes a fingerprint of today's ledger to the blockchain so it cannot be changed later. Once per day.</p>
+        <button class="btn ghost auto" id="anchor" type="button"><span data-icon="link" data-size="18"></span> Run daily anchor</button>
+        <div id="chain-out" aria-live="polite"></div>
+      </div>
+      <h2>Recent anchors</h2>
+      <div class="card" id="anchors"></div>
+    </section>
+  </main>
+</div>
+<script src="/common.js"></script>
+<script>
+mountNav({ role: 'admin', title: 'Admin' });
+const $ = (i) => document.getElementById(i);
+const SECS = ['overview', 'alerts', 'solar', 'households', 'settings', 'blockchain'];
+const day = (s) => new Date(s).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+const nf = (n) => Number(n || 0).toLocaleString('en-IN');
+let stats = null, alertCount = 0, pendingSolar = 0;
+
+/* ---------- navigation by hash ---------- */
+function drawNav(active) {
+  $('side').innerHTML = adminNavHtml(active);
+  hydrateIcons($('side'));
+  const badge = (id, n) => { const a = $('side').querySelector(`a[href="#${id}"]`); if (a && n > 0) a.insertAdjacentHTML('beforeend', `<span class="chip poor" style="margin-left:auto" aria-label="${n} waiting">${n}</span>`); };
+  badge('alerts', alertCount); badge('solar', pendingSolar);
+}
+function route() {
+  const h = location.hash.replace('#', ''); const id = SECS.includes(h) ? h : 'overview';
+  document.querySelectorAll('[data-sec]').forEach((s) => { s.hidden = s.dataset.sec !== id; });
+  drawNav(id);
+  const t = { overview: 'Overview', alerts: 'Alerts', solar: 'Solar approvals', households: 'Households and QR', settings: 'Settings', blockchain: 'Blockchain' }[id];
+  document.title = `${t} - Admin - EcoLedger`;
+}
+window.addEventListener('hashchange', route);
+
+/* ---------- overview ---------- */
+const kpi = (label, v, sub) => `<div class="kpi"><div class="label">${esc(label)}</div><div class="value">${esc(v)}</div>${sub ? `<div class="sub">${esc(sub)}</div>` : ''}</div>`;
+function wardChart(rows) {
+  const max = Math.max(...rows.map((w) => w.good + w.partial + w.poor), 1);
+  return `<div class="bars" role="img" aria-label="Waste results by ward">${rows.map((w) => {
+    const t = w.good + w.partial + w.poor, p = (n) => (n / max * 100).toFixed(1);
+    return `<div class="bar-row"><b>${esc(w.ward)}</b><div class="bar-track"><span style="width:${p(w.good)}%;background:var(--good)" title="Good ${w.good}"></span><span style="width:${p(w.partial)}%;background:var(--warn)" title="Partial ${w.partial}"></span><span style="width:${p(w.poor)}%;background:var(--bad)" title="Poor ${w.poor}"></span></div><span>${t}</span></div>`;
+  }).join('')}</div>
+  <div class="legend"><span><i style="background:var(--good)"></i>Good</span><span><i style="background:var(--warn)"></i>Partial</span><span><i style="background:var(--bad)"></i>Poor</span></div>
+  <div class="table-wrap" style="margin-top:12px"><table class="table"><thead><tr><th>Ward</th><th>Good</th><th>Partial</th><th>Poor</th></tr></thead><tbody>${rows.map((w) => `<tr><td>${esc(w.ward)}</td><td>${w.good}</td><td>${w.partial}</td><td>${w.poor}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function loadStats() {
+  return loadInto($('kpis'), async () => {
+    stats = await api('/api/admin/stats');
+    $('ward').innerHTML = stats.waste_by_ward.length ? wardChart(stats.waste_by_ward) : emptyState({ icon: 'waste', title: 'No reviews yet', text: 'Results appear after collectors review their first houses.' });
+    hydrateIcons($('ward'));
+    $('chain-kpi').innerHTML = kpi('Waiting for blockchain', stats.pending_chain, stats.pending_chain ? 'Use Retry pending below' : 'Everything is on chain')
+      + kpi('Anchored days', stats.anchors.length, stats.anchors.length ? `Latest ${stats.anchors[0].date}` : 'None yet');
+    $('anchors').innerHTML = stats.anchors.length ? stats.anchors.map((a) => `<div class="row" style="align-items:center"><span><b>${esc(a.date)}</b><div class="mono muted">${esc(a.digest.slice(0, 20))}...</div></span>${chainBadge({ tx_hash: a.tx_hash }, stats.explorer)}</div>`).join('') : emptyState({ icon: 'link', title: 'No anchors yet', text: 'Run the daily anchor once there are ledger events today.' });
+    hydrateIcons($('anchors'));
+    return stats;
+  }, (s) => {
+    const used = s.points_issued ? Math.round(s.points_redeemed / s.points_issued * 100) : 0;
+    return `<div class="kpis">${kpi('Points issued', nf(s.points_issued), money(s.points_issued))}${kpi('Points redeemed', nf(s.points_redeemed), `${used}% of issued`)}${kpi('Tickets claimed', nf(s.tickets_claimed))}${kpi('Waiting for blockchain', s.pending_chain)}</div>`;
+  }, { rows: 2, isEmpty: () => false });
+}
+function bonusTable(r) {
+  return `<p style="margin-top:12px"><b>${esc(r.month)}</b>: needs ${r.threshold}% good houses, bonus ${r.bonus} points per household.</p>
+    <div class="table-wrap"><table class="table"><thead><tr><th>Society</th><th>Good houses</th><th>Result</th><th>Paid now</th><th>Already paid</th></tr></thead><tbody>${r.report.map((x) =>
+      `<tr><td>${esc(x.society)}</td><td>${x.good_houses} of ${x.houses} (${x.pct}%)</td><td><span class="chip ${x.qualified ? 'good' : 'pending'}">${x.qualified ? 'Qualified' : 'Not yet'}</span></td><td>${x.credited}</td><td>${x.already}</td></tr>`).join('')}</tbody></table></div>`;
+}
+$('bonus').onclick = (e) => withBusy(e.currentTarget, async () => {
+  if (!await confirmModal('Run the society bonus for this month now? Qualified households are credited points.', { title: 'Society bonus', confirmText: 'Run bonus' })) return;
+  try { const r = await api('/api/admin/bonus', { method: 'POST', body: {} }); $('bonus-out').innerHTML = bonusTable(r); toast('Society bonus run', 'success'); loadStats(); }
+  catch (x) { toast(x.message, 'error'); }
+});
+
+/* ---------- alerts ---------- */
+function loadAlerts() {
+  const row = (l, r) => `<div class="row" style="align-items:center"><span>${l}</span><span class="muted">${r}</span></div>`;
+  return loadInto($('a-unrev'), async () => {
+    const a = await api('/api/admin/alerts');
+    alertCount = a.unreviewed.length + a.contested.length + a.skewed.length; drawNav(SECS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'overview');
+    $('a-cont').innerHTML = a.contested.length ? a.contested.map((r) => row(`<b>${esc(r.house_id)}</b> &middot; visit ${r.visit_id} &middot; <span class="chip ${esc(r.result)}">${esc(r.result)}</span> (${r.points_awarded} pts) &middot; ${esc(r.collector)}${r.remark ? `<div class="muted">${esc(r.remark)}</div>` : ''}`, esc(timeAgo(r.contested_at)))).join('') : '<div class="muted">No contested marks.</div>';
+    $('a-skew').innerHTML = a.skewed.length ? a.skewed.map((r) => row(`<b>${esc(r.collector)}</b>`, `${r.good_pct}% good of ${r.visits} visits`)).join('') : '<div class="muted">Nobody stands out.</div>';
+    return a.unreviewed;
+  }, (rows) => rows.map((r) => row(`<b>${esc(r.house_id)}</b> &middot; ${esc(r.collector)}`, `${r.hours_ago} h ago`)).join(''), { rows: 2, empty: { icon: 'check', title: 'All caught up', text: 'No visits are waiting for review.' } });
+}
+
+/* ---------- solar ---------- */
+function loadSolar() {
+  return loadInto($('solar'), async () => { const rows = await api('/api/admin/solar'); pendingSolar = rows.filter((r) => r.status === 'pending').length; return rows; },
+    (rows) => rows.map((r) => `<div class="card" style="margin:8px 0"><div class="row" style="border:0;padding:0;align-items:center"><span><b class="mono">${esc(r.installation_id)}</b><div class="muted">${esc(r.name)} &middot; ${esc(r.house_id)} &middot; ${esc(timeAgo(r.created_at))}</div></span>
+      ${r.status === 'pending' ? `<button class="btn sm" type="button" data-approve="${r.id}">Approve</button>` : `<span class="chip good">Approved +${r.points}</span>`}</div></div>`).join(''),
+    { rows: 2, empty: { icon: 'solar', title: 'No submissions yet', text: 'Residents submit installation IDs from their Solar page.' } });
+}
+$('solar').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-approve]'); if (!b) return;
+  if (!await confirmModal('Approve this solar installation? The household is credited points straight away.', { title: 'Approve solar', confirmText: 'Approve' })) return;
+  await withBusy(b, async () => {
+    try { const r = await api('/api/admin/solar/approve', { body: { id: Number(b.dataset.approve) } }); toast(`Approved: ${r.points} points credited`, 'success'); }
+    catch (x) { toast(x.message, 'error'); }
+    await loadSolar(); drawNav(SECS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'overview'); loadStats();
+  });
+});
+
+/* ---------- households ---------- */
+function loadHouses() {
+  return loadInto($('houses'), () => api('/api/admin/households'),
+    (rows) => `<div class="table-wrap"><table class="table"><thead><tr><th>House</th><th>Ward</th><th>Address</th><th>Claim code</th><th>QR</th></tr></thead><tbody>${rows.map((h) =>
+      `<tr><td><b>${esc(h.house_id)}</b></td><td>${esc(h.ward)}</td><td>${esc(h.address)}</td><td class="mono">${esc(h.claim_code)}</td><td><img src="${h.qr}" alt="QR for ${esc(h.house_id)}" width="48" height="48"></td></tr>`).join('')}</tbody></table></div>`,
+    { rows: 3, empty: { icon: 'building', title: 'No households', text: 'Households are loaded by the seed script.' } });
+}
+
+/* ---------- settings ---------- */
+const CFG = [
+  ['Electric bus points', [['points_per_km', 'Points per km', 'points'], ['min_trip_km', 'Shortest trip that earns points', 'km'], ['max_points_ticket', 'Most points for one ticket', 'points'], ['daily_cap_bus', 'Most bus points per person per day', 'points'], ['claim_window_hours', 'Time allowed to claim a ticket', 'hours']]],
+  ['Waste collection', [['waste_good', 'Points for a good visit', 'points'], ['waste_partial', 'Points for a partial visit', 'points'], ['waste_poor', 'Points for a poor visit', 'points'], ['contest_window_hours', 'Time allowed to contest a mark', 'hours']]],
+  ['Solar and bonus', [['solar_points', 'Points for approved solar', 'points'], ['society_bonus', 'Society bonus per household', 'points'], ['society_bonus_threshold_pct', 'Good houses needed for the bonus', 'percent']]],
+  ['Redeeming', [['points_per_rupee', 'Points worth Rs 1', 'points']]],
+];
+let cfgOrig = {};
+function loadCfg() {
+  return loadInto($('cfgfields'), async () => { cfgOrig = await api('/api/admin/config'); return cfgOrig; }, (c) => CFG.map(([g, fs]) => `<h2>${g}</h2><div class="card">${fs.filter(([k]) => k in c).map(([k, l, u]) =>
+    `<div class="field"><label for="c-${k}">${esc(l)}</label><div class="input-wrap"><input id="c-${k}" data-k="${k}" type="number" step="any" min="0" inputmode="decimal" value="${esc(c[k])}" aria-describedby="c-${k}-error"><span class="pw-toggle" style="pointer-events:none;color:var(--grey)">${u}</span></div><div class="error" id="c-${k}-error" role="alert"></div></div>`).join('')}</div>`).join(''), { rows: 3, isEmpty: () => false });
+}
+const dirty = () => [...document.querySelectorAll('#cfgfields input')].some((i) => String(i.value) !== String(cfgOrig[i.dataset.k]));
+$('cfgfields').addEventListener('input', (e) => { if (e.target.dataset.k) setFieldError(e.target.id, ''); $('cfg-save').disabled = !dirty(); $('cfg-err').hidden = true; });
+$('cfg').addEventListener('submit', async (e) => {
+  e.preventDefault(); $('cfg-err').hidden = true;
+  const values = {}; let bad = false;
+  document.querySelectorAll('#cfgfields input').forEach((i) => {
+    const n = Number(i.value); let msg = '';
+    if (i.value.trim() === '' || !Number.isFinite(n) || n < 0) msg = 'Enter a number, 0 or more.';
+    else if (i.dataset.k === 'points_per_rupee' && n <= 0) msg = 'Must be above 0.';
+    else if (i.dataset.k === 'society_bonus_threshold_pct' && n > 100) msg = 'Must be 100 or less.';
+    setFieldError(i.id, msg); if (msg) bad = true; values[i.dataset.k] = i.value;
+  });
+  if (bad) { (document.querySelector('.field.invalid input') || {}).focus?.(); return; }
+  if (!await confirmModal('Save these settings? They apply to everyone straight away.', { title: 'Save settings', confirmText: 'Save' })) return;
+  await withBusy($('cfg-save'), async () => {
+    try { await api('/api/admin/config', { body: { values } }); toast('Settings saved', 'success'); await loadCfg(); }
+    catch (x) { $('cfg-err').textContent = x.message; $('cfg-err').hidden = false; }
+  });
+  $('cfg-save').disabled = !dirty();
+});
+
+/* ---------- blockchain actions ---------- */
+const say = (html, cls) => { $('chain-out').innerHTML = `<div class="alert ${cls || 'info'}">${html}</div>`; };
+$('retry').onclick = (e) => withBusy(e.currentTarget, async () => {
+  try {
+    const r = await api('/api/admin/retry-pending', { method: 'POST', body: {} });
+    say(r.tried ? `Tried ${r.tried} row${r.tried === 1 ? '' : 's'}: <b>${r.confirmed}</b> confirmed, <b>${r.still_pending}</b> still pending.` : 'Nothing to retry. No rows have been pending for over a minute.', r.still_pending ? 'error' : 'ok');
+    loadStats();
+  } catch (x) { say(esc(x.message), 'error'); }
+});
+$('anchor').onclick = (e) => withBusy(e.currentTarget, async () => {
+  if (!await confirmModal("Anchor today's ledger on the blockchain? This can only be done once per day.", { title: 'Daily anchor', confirmText: 'Anchor now' })) return;
+  try {
+    const r = await api('/api/admin/anchor', { method: 'POST', body: {} });
+    say(`Anchored <b>${esc(r.date)}</b>: ${r.events} ledger event${r.events === 1 ? '' : 's'}.`, 'ok'); toast('Ledger anchored', 'success'); loadStats();
+  } catch (x) { say(esc(/Already anchored/.test(x.message) ? 'Today has already been anchored.' : /No ledger events/.test(x.message) ? 'There are no ledger events today to anchor yet.' : x.message), 'error'); }
+});
+
+route();
+loadStats(); loadAlerts().then(route); loadSolar().then(() => drawNav(SECS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'overview')); loadHouses(); loadCfg();
+</script>
+</body></html>

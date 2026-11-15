@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#B0D68C">
+<title>Scan ticket - EcoLedger</title>
+<link rel="icon" href="data:,"><link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main>
+  <h1>Scan your bus ticket</h1>
+  <p class="muted">Point the camera at the QR code on your electric bus ticket. Points are added straight away.</p>
+
+  <div class="viewfinder" id="vf">
+    <div id="reader" style="width:100%;height:100%"></div>
+    <div class="frame" id="frame"></div>
+    <div class="hint" id="vf-hint">Camera is off</div>
+  </div>
+  <button class="btn" id="start" type="button" style="margin-top:12px"><span data-icon="scan" data-size="20"></span> Start camera</button>
+
+  <div class="alert info" id="cam-msg" hidden role="status"></div>
+
+  <details class="card" id="manual-box">
+    <summary style="font-weight:700;cursor:pointer;min-height:var(--tap);display:flex;align-items:center">Camera not working? Type the ticket code</summary>
+    <div class="field">
+      <label for="manual">Ticket code</label>
+      <input id="manual" placeholder="T-12345.0123456789abcdef" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div class="hint">You can find it printed under the QR code.</div>
+    </div>
+    <button class="btn ghost" id="send" type="button">Claim points</button>
+  </details>
+
+  <div id="out" aria-live="polite"></div>
+</main>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="/common.js"></script>
+<script>
+mountNav({ role: 'citizen', title: 'Scan ticket' });
+const $ = (i) => document.getElementById(i);
+let busy = false, scanner = null;
+
+async function stopCamera() {
+  if (scanner) { try { await scanner.stop(); } catch (e) { /* already stopped */ } scanner = null; }
+  $('vf-hint').textContent = 'Camera is off'; $('frame').style.visibility = 'hidden';
+  $('start').hidden = false;
+}
+function showResult(html, cls) {
+  $('out').innerHTML = `<div class="card welcome ${cls || ''}">${html}</div>`;
+  hydrateIcons($('out'));
+  if ($('out').scrollIntoView) $('out').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+async function claim(payload) {
+  if (busy) return; busy = true;
+  try {
+    const r = await api('/api/citizen/claim', { body: { payload } });
+    await stopCamera();
+    if (r.points > 0) {
+      showResult(`<div class="big-ic">${icon('check', 36)}</div><div class="big" style="color:var(--good)">+${r.points}</div>
+        <p><b>Points added!</b> Your balance is now <b>${r.balance.toLocaleString('en-IN')}</b> (${money(r.balance)}).</p>
+        <div class="btn-row"><a class="btn" href="/dashboard">Back to Home</a><a class="btn ghost" href="/redeem">Redeem points</a></div>`);
+      toast(`+${r.points} points added`, 'success');
+    } else {
+      showResult(`<div class="big-ic" style="background:var(--warn)">${icon('alert', 36)}</div><h2>No points this time</h2>
+        <p>${esc(r.reason || 'This ticket did not earn points.')}</p><a class="btn ghost" href="/dashboard">Back to Home</a>`);
+    }
+  } catch (e) {
+    const known = { 'Ticket already claimed': 'This ticket has already been used.', 'Ticket expired': 'This ticket is too old to claim.', 'Invalid ticket': 'That does not look like an EcoLedger ticket. Check the code and try again.' };
+    showResult(`<div class="big-ic" style="background:var(--bad)">${icon('x', 36)}</div><h2>Could not claim</h2><p>${esc(known[e.message] || e.message)}</p>
+      <button class="btn ghost" type="button" id="again">Scan another ticket</button>`);
+    $('again').onclick = () => { $('out').innerHTML = ''; window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  } finally { setTimeout(() => (busy = false), 1500); }
+}
+
+$('send').onclick = (e) => {
+  const v = $('manual').value.trim();
+  if (!v) { $('manual').focus(); toast('Type the ticket code first', 'error'); return; }
+  withBusy(e.currentTarget, () => claim(v));
+};
+$('start').onclick = async () => {
+  const msg = $('cam-msg'); msg.hidden = true;
+  if (typeof Html5Qrcode === 'undefined') {
+    msg.textContent = 'The camera scanner could not load. Type the ticket code below instead.'; msg.hidden = false; $('manual-box').open = true; return;
+  }
+  try {
+    $('start').hidden = true; $('vf-hint').textContent = 'Starting camera...';
+    scanner = new Html5Qrcode('reader');
+    await scanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: 240 }, (txt) => claim(txt), () => {});
+    $('frame').style.visibility = 'visible'; $('vf-hint').textContent = 'Hold the QR code inside the frame';
+  } catch (e) {
+    scanner = null; $('start').hidden = false; $('vf-hint').textContent = 'Camera is off';
+    msg.textContent = 'We could not open the camera. Allow camera access in your browser, or type the ticket code below.'; msg.hidden = false; $('manual-box').open = true;
+  }
+};
+$('frame').style.visibility = 'hidden';
+</script>
+</body></html>

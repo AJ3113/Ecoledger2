@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#14301F"><meta name="description" content="EcoLedger rewards green actions with points you can redeem for transit fares, water tax and electricity bills.">
+<title>EcoLedger - every green action, instantly rewarded</title>
+<link rel="icon" href="data:,"><link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<section class="hero">
+  <div class="hero-in">
+    <h1>EcoLedger: <em>every green action,</em> instantly rewarded.</h1>
+    <p>Ride electric buses, sort your household waste and install rooftop solar. Earn green points and use them to pay less for transit fares, water tax and electricity bills.</p>
+    <div class="hero-cta" id="hero-cta">
+      <a class="btn auto" href="/login">Citizen sign in</a>
+      <a class="btn ghost auto" href="/register">Create an account</a>
+    </div>
+  </div>
+</section>
+
+<main class="wide" style="padding:0">
+  <section class="section" aria-labelledby="who">
+    <h2 id="who">Choose how you use EcoLedger</h2>
+    <div class="rolecards">
+      <div class="rolecard">
+        <div class="ico" data-icon="user" data-size="26"></div>
+        <h3>Citizen</h3>
+        <p>Scan bus tickets, track waste pickups, add solar and redeem your points.</p>
+        <div class="actions">
+          <a class="btn" href="/login">Sign in</a>
+          <a class="btn ghost" href="/register">Create an account</a>
+        </div>
+      </div>
+      <div class="rolecard">
+        <div class="ico" data-icon="truck" data-size="26"></div>
+        <h3>Waste collector</h3>
+        <p>Scan a house, check the three waste rules and submit your review in a few taps.</p>
+        <div class="actions"><a class="btn" href="/collector/login">Collector sign in</a></div>
+      </div>
+      <div class="rolecard">
+        <div class="ico" data-icon="shield" data-size="26"></div>
+        <h3>Administrator</h3>
+        <p>See the numbers, handle alerts, approve solar and manage settings and the blockchain.</p>
+        <div class="actions"><a class="btn" href="/admin/login">Admin sign in</a></div>
+      </div>
+    </div>
+    <div class="quick muted">
+      <span>Also:</span>
+      <a href="/conductor">Conductor demo</a>
+      <a href="/department">Department desk</a>
+      <a href="/demo">Demo data</a>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="how">
+    <h2 id="how">How it works</h2>
+    <ol class="strip">
+      <li><div class="n">1</div><b>Act</b><span class="muted">Ride an electric bus, separate your waste, or go solar.</span></li>
+      <li><div class="n">2</div><b>Verify</b><span class="muted">Signed tickets, a collector's review, or an admin's approval confirm it.</span></li>
+      <li><div class="n">3</div><b>Earn on Algorand</b><span class="muted">Points are recorded on the Algorand blockchain as GRN tokens.</span></li>
+      <li><div class="n">4</div><b>Redeem</b><span class="muted">Turn points into a discount code for transit, water or electricity.</span></li>
+    </ol>
+  </section>
+</main>
+<p class="footer">EcoLedger is a prototype. Points have no cash value outside the municipal programme.</p>
+
+<script src="/common.js"></script>
+<script>
+mountNav({ links: [{ label: 'Demo data', href: '/demo' }] }).then((me) => {
+  if (!me.role) return;
+  const names = { citizen: 'your dashboard', collector: 'your collection list', admin: 'the admin console' };
+  document.getElementById('hero-cta').innerHTML =
+    `<a class="btn auto" href="${EL.home[me.role]}">Continue to ${names[me.role]}</a>`;
+});
+</script>
+</body></html>

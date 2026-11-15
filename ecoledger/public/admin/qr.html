@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#B0D68C">
+<title>Household QR sheet - EcoLedger</title>
+<link rel="icon" href="data:,"><link rel="stylesheet" href="/app.css">
+<style>
+#grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; }
+.tile { border:2px solid var(--dark); border-radius:var(--radius); padding:10px; text-align:center; background:#fff; break-inside:avoid; page-break-inside:avoid; }
+.tile img { width:160px; height:160px; image-rendering:pixelated; }
+.tile .id { font-size:1.3rem; font-weight:800; }
+@media print { #grid { grid-template-columns:repeat(3,1fr); gap:8px; } .tile { border:1px solid #000; } }
+</style>
+</head>
+<body>
+<main class="wide">
+  <div class="noprint">
+    <h1>Household QR sheet</h1>
+    <p class="muted">Print and cut out one tile per house. Stick the QR on the house gate. Give the claim code to the resident only.</p>
+    <button class="btn auto" id="print" type="button"><span data-icon="printer" data-size="18"></span> Print</button>
+  </div>
+  <div id="grid" style="margin-top:14px"></div>
+</main>
+<script src="/common.js"></script>
+<script>
+mountNav({ role: 'admin', title: 'Household QR sheet', back: '/admin/#households' });
+document.getElementById('print').onclick = () => window.print();
+loadInto(document.getElementById('grid'), () => api('/api/admin/households'),
+  (rows) => rows.map((h) => `<div class="tile"><img src="${h.qr}" alt="QR code for ${esc(h.house_id)}"><div class="id">${esc(h.house_id)}</div><div>Claim code: <b class="mono">${esc(h.claim_code)}</b></div><div class="muted">${esc(h.ward)}</div></div>`).join(''),
+  { rows: 3, empty: { icon: 'building', title: 'No households', text: 'Households are loaded by the seed script.' } });
+</script>
+</body></html>

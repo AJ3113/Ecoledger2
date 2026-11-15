@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#B0D68C">
+<title>Waste visits - EcoLedger</title>
+<link rel="icon" href="data:,"><link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main>
+  <h1>Waste visits</h1>
+  <p class="muted">Each time a collector checks your segregated waste, the result appears here. If you think a mark is wrong, you can contest it for a short time.</p>
+  <div id="summary"></div>
+  <ul class="timeline" id="list" style="margin-top:16px"></ul>
+</main>
+<script src="/common.js"></script>
+<script>
+mountNav({ role: 'citizen', title: 'Waste visits' });
+const NAME = { good: 'Good', partial: 'Partly sorted', poor: 'Needs work' };
+const TIP = { good: 'Well done, wet and dry waste were kept apart.', partial: 'Some waste was mixed. Keep wet and dry waste in separate bins.', poor: 'Waste was mixed. Keep wet and dry waste in separate bins.' };
+const list = document.getElementById('list');
+const day = (s) => new Date(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+
+function render(rows) {
+  const good = rows.filter((r) => r.result === 'good').length;
+  document.getElementById('summary').innerHTML = `<div class="card stat"><span style="color:var(--mid)">${icon('waste', 28)}</span>
+    <div><div class="num">${good} of ${rows.length}</div><div class="muted">visits marked good</div></div></div>`;
+  return rows.map((r) => `<li class="card" style="margin-top:0">
+    <div class="row" style="border:0;padding:0;align-items:center"><b>${esc(day(r.reviewed_at))}</b><span class="chip ${esc(r.result)}">${esc(NAME[r.result] || r.result)}</span></div>
+    <div style="margin-top:6px"><b>${r.points_awarded > 0 ? '+' : ''}${r.points_awarded}</b> points</div>
+    <div class="muted">${esc(r.remark || TIP[r.result] || '')}</div>
+    ${r.contested ? '<div style="margin-top:8px"><span class="chip pending">Contest sent, waiting for review</span></div>' : ''}
+    ${r.can_contest ? `<button class="btn ghost sm auto" style="margin-top:8px" type="button" data-contest="${r.id}">Contest this mark</button>` : ''}
+  </li>`).join('');
+}
+function load() {
+  return loadInto(list, () => api('/api/citizen/waste'), render, {
+    rows: 3, empty: { icon: 'waste', title: 'No visits yet', text: 'When a collector visits your house, the result will show up here.' },
+  });
+}
+list.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-contest]'); if (!b) return;
+  const yes = await confirmModal('Contest this mark? A supervisor will take another look. You can only do this once per visit.', { title: 'Contest this mark', confirmText: 'Yes, contest it' });
+  if (!yes) return;
+  await withBusy(b, async () => {
+    try { await api('/api/citizen/contest', { body: { visit_id: Number(b.dataset.contest) } }); toast('Contest sent. We will review it.', 'success'); }
+    catch (x) { toast(x.message, 'error'); }
+    await load();
+  });
+});
+load();
+</script>
+</body></html>

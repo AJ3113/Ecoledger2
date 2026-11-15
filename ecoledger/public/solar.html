@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#B0D68C">
+<title>Rooftop solar - EcoLedger</title>
+<link rel="icon" href="data:,"><link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main>
+  <h1>Rooftop solar</h1>
+  <p class="muted">Have solar panels on your roof? Enter the installation ID from your solar certificate. An administrator checks it, then your points are added.</p>
+
+  <div id="status"></div>
+
+  <form id="f" class="card" novalidate hidden>
+    <div class="field" style="margin-top:0">
+      <label for="inst">Installation ID</label>
+      <input id="inst" maxlength="40" autocomplete="off" autocapitalize="characters" placeholder="e.g. SOL-2024-0042" aria-describedby="inst-error">
+      <div class="hint">3 to 40 letters or digits. Dots and dashes are fine.</div>
+      <div class="error" id="inst-error" role="alert"></div>
+    </div>
+    <div class="alert error" id="form-error" role="alert" hidden></div>
+    <button class="btn" id="submit" type="submit">Submit for approval</button>
+  </form>
+</main>
+<script src="/common.js"></script>
+<script>
+mountNav({ role: 'citizen', title: 'Rooftop solar' });
+const $ = (i) => document.getElementById(i);
+const day = (s) => new Date(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+
+function render(rows) {
+  if (!rows.length) return '';
+  const r = rows[0], approved = r.status === 'approved';
+  return `<div class="card">
+    <ol class="stepper" aria-label="Approval progress">
+      <li class="done">Submitted</li><li class="${approved ? 'done' : 'active'}">Under review</li><li class="${approved ? 'done' : ''}">Approved</li>
+    </ol>
+    <div class="row" style="border:0;padding:0;align-items:center"><b class="mono">${esc(r.installation_id)}</b>
+      <span class="chip ${approved ? 'good' : 'pending'}">${approved ? 'Approved' : 'Waiting for approval'}</span></div>
+    <div class="muted">Sent ${esc(day(r.created_at))}</div>
+    ${approved ? `<p style="margin-top:10px"><b>+${r.points} points</b> were added to your balance.</p><a class="btn" href="/dashboard">See my points</a>`
+      : '<p class="muted" style="margin-top:10px">Nothing more to do. Check back here later, your points are added as soon as it is approved.</p>'}
+  </div>`;
+}
+async function load() {
+  const rows = await loadInto($('status'), () => api('/api/citizen/solar'), render, { rows: 1, isEmpty: () => false });
+  $('f').hidden = !!(rows && rows.length) || !rows;
+}
+$('inst').addEventListener('input', () => { setFieldError('inst', ''); $('form-error').hidden = true; });
+$('f').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const v = $('inst').value.trim();
+  if (!/^[A-Za-z0-9._-]{3,40}$/.test(v)) { setFieldError('inst', 'Use 3 to 40 letters, digits, dots or dashes. No spaces.'); $('inst').focus(); return; }
+  await withBusy($('submit'), async () => {
+    try { await api('/api/citizen/solar', { body: { installation_id: v } }); toast('Submitted for approval', 'success'); await load(); }
+    catch (x) { $('form-error').textContent = x.message; $('form-error').hidden = false; }
+  });
+});
+load();
+</script>
+</body></html>

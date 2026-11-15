@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#B0D68C">
+<title>Redeem - EcoLedger</title>
+<link rel="icon" href="data:,"><link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main>
+  <h1>Redeem points</h1>
+  <ol class="stepper" id="steps" aria-label="Progress">
+    <li class="active">Choose</li><li>Confirm</li><li>Show code</li>
+  </ol>
+
+  <section id="form-view">
+    <div class="card stat"><span style="color:var(--mid)" data-icon="redeem" data-size="28"></span>
+      <div><div class="muted">Available</div><div class="num"><span id="bal">-</span> points</div><div class="muted" id="bal-rs">&nbsp;</div></div></div>
+    <form id="f" novalidate>
+      <fieldset style="border:0;padding:0;margin:0">
+        <legend style="font-weight:700;margin-top:8px">Use points for</legend>
+        <div class="choices" id="depts"></div>
+      </fieldset>
+      <div class="field">
+        <label for="pts">Points to redeem</label>
+        <input id="pts" type="number" min="1" step="1" inputmode="numeric" aria-describedby="pts-error pts-hint">
+        <div class="pills" id="quick" style="margin-top:8px"></div>
+        <div class="hint" id="pts-hint">&nbsp;</div>
+        <div class="error" id="pts-error" role="alert"></div>
+      </div>
+      <div class="field">
+        <label for="pw">Your password</label>
+        <div class="input-wrap">
+          <input id="pw" type="password" autocomplete="current-password" aria-describedby="pw-error">
+          <button type="button" class="pw-toggle" data-pw-toggle="pw" aria-pressed="false">Show</button>
+        </div>
+        <div class="hint">We ask for it so nobody else can spend your points.</div>
+        <div class="error" id="pw-error" role="alert"></div>
+      </div>
+      <div class="alert error" id="form-error" role="alert" hidden></div>
+      <button class="btn" id="submit" type="submit">Redeem</button>
+    </form>
+  </section>
+
+  <section id="result" hidden class="card welcome"></section>
+
+  <h2>Past redemptions</h2>
+  <div id="list"></div>
+</main>
+<script src="/common.js"></script>
+<script>
+mountNav({ role: 'citizen', title: 'Redeem' });
+const $ = (i) => document.getElementById(i);
+const DEPT = { transit: ['Transit fare', 'Pay for bus rides'], water: ['Water tax', 'Take off your water bill'], electricity: ['Electricity bill', 'Take off your power bill'] };
+const day = (s) => new Date(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+let ppr = 10, balance = 0, explorer = '';
+
+$('depts').innerHTML = Object.entries(DEPT).map(([k, [n, d]], i) =>
+  `<label class="choice"><input type="radio" name="dept" value="${k}" ${i === 0 ? 'checked' : ''}><span><b>${n}</b><div class="muted">${d}</div></span></label>`).join('');
+const dept = () => document.querySelector('input[name=dept]:checked').value;
+const setStep = (n) => [...$('steps').children].forEach((li, i) => { li.className = i < n ? 'done' : i === n ? 'active' : ''; });
+
+function updateHint() {
+  const n = Number($('pts').value);
+  $('pts-hint').textContent = n > 0 ? `Worth Rs ${(n / ppr).toLocaleString('en-IN')}` : `Every ${ppr} points is worth Rs 1`;
+}
+function buildQuick() {
+  const opts = [['100', 100], ['250', 250], ['500', 500], ['All', balance]].filter(([, v], i, a) => v > 0 && v <= balance && a.findIndex(([, w]) => w === v) === i);
+  $('quick').innerHTML = opts.map(([l, v]) => `<button type="button" class="pill" data-v="${v}">${l}</button>`).join('');
+}
+$('quick').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; $('pts').value = b.dataset.v; setFieldError('pts', ''); updateHint(); });
+$('pts').addEventListener('input', () => { setFieldError('pts', ''); updateHint(); });
+$('pw').addEventListener('input', () => { setFieldError('pw', ''); $('form-error').hidden = true; });
+
+const listEl = $('list');
+async function load() {
+  return loadInto(listEl, async () => {
+    const d = await api('/api/citizen/redemptions');
+    ppr = d.points_per_rupee; balance = d.balance; explorer = d.explorer;
+    $('bal').textContent = balance.toLocaleString('en-IN'); $('bal-rs').textContent = `Worth ${money(balance)}`;
+    buildQuick(); updateHint();
+    return d.redemptions;
+  }, (rows) => rows.map((r) => {
+    const st = r.status === 'applied' ? '<span class="chip applied">Used</span>' : r.expired ? '<span class="chip poor">Expired</span>' : '<span class="chip partial">Not used yet</span>';
+    return `<div class="card"><div class="row" style="border:0;padding:0;align-items:center"><b class="mono">${esc(r.code)}</b>${st}</div>
+      <div>${esc((DEPT[r.department] || [r.department])[0])} &middot; ${r.points} points &middot; Rs ${esc(r.rupee_value)}</div>
+      <div class="muted">${esc(day(r.created_at))}${r.status === 'pending' && !r.expired ? ' &middot; use before ' + esc(day(r.expires_at)) : ''} ${chainBadge(r, explorer)}</div>
+      ${r.qr ? `<img src="${r.qr}" alt="QR code ${esc(r.code)}" width="140" height="140" style="margin-top:8px">` : ''}</div>`;
+  }).join(''), { rows: 2, empty: { icon: 'redeem', title: 'No redemptions yet', text: 'When you redeem points, your codes are kept here.' } });
+}
+
+function validate() {
+  let ok = true; const n = Number($('pts').value);
+  if (!$('pts').value || !Number.isInteger(n) || n <= 0) { setFieldError('pts', 'Enter a whole number of points above 0.'); ok = false; }
+  else if (n > balance) { setFieldError('pts', `You only have ${balance} points.`); ok = false; }
+  if (!$('pw').value) { setFieldError('pw', 'Enter your password to confirm.'); ok = false; }
+  if (!ok) (document.querySelector('.field.invalid input') || {}).focus?.();
+  return ok;
+}
+$('f').addEventListener('submit', async (e) => {
+  e.preventDefault(); $('form-error').hidden = true;
+  if (!validate()) return;
+  const n = Number($('pts').value), name = DEPT[dept()][0];
+  setStep(1);
+  const yes = await confirmModal(`Redeem ${n} points (Rs ${n / ppr}) for ${name}? This cannot be undone.`, { title: 'Confirm redemption', confirmText: 'Redeem' });
+  if (!yes) { setStep(0); return; }
+  await withBusy($('submit'), async () => {
+    try {
+      const r = await api('/api/citizen/redeem', { body: { department: dept(), points: n, password: $('pw').value } });
+      $('pw').value = ''; $('pts').value = '';
+      setStep(3);
+      $('form-view').hidden = true; $('result').hidden = false;
+      $('result').innerHTML = `<div class="big-ic">${icon('check', 36)}</div><h2>Your code is ready</h2>
+        <p class="muted">Show this at the ${esc(DEPT[r.department][0])} counter</p>
+        <div class="big mono" id="code">${esc(r.code)}</div>
+        <img src="${r.qr}" alt="QR code ${esc(r.code)}" width="200" height="200" style="margin:8px auto">
+        <p>Worth <b>Rs ${esc(r.rupee_value)}</b> &middot; use before ${esc(day(r.expires_at))}</p>
+        <div class="btn-row"><button class="btn ghost" type="button" id="copy">${icon('copy', 18)} Copy code</button><button class="btn" type="button" id="again">Redeem more</button></div>`;
+      $('copy').onclick = async () => { await copyText(r.code); toast('Code copied', 'success'); };
+      $('again').onclick = () => { $('result').hidden = true; $('form-view').hidden = false; setStep(0); window.scrollTo({ top: 0 }); };
+      toast('Points redeemed', 'success');
+      await load();
+    } catch (x) {
+      setStep(0);
+      if (/password/i.test(x.message)) setFieldError('pw', x.message);
+      else { $('form-error').textContent = x.message; $('form-error').hidden = false; }
+    }
+  });
+});
+load();
+</script>
+</body></html>

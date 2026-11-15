@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#B0D68C">
+<title>Demo data - EcoLedger</title>
+<link rel="icon" href="data:,"><link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main>
+  <h1>Demo data</h1>
+  <div class="alert info" style="margin-top:0">Demo only. This page lists test houses and tickets so you can try the app. It is not shown in a real deployment.</div>
+
+  <h2>Houses you can register</h2>
+  <p class="muted">Use a house ID with its claim code on the register page.</p>
+  <div id="houses"></div>
+
+  <h2>Demo tickets</h2>
+  <p class="muted">Paste a code on the Scan page of a signed-in citizen, or ask the conductor page for a fresh QR.</p>
+  <div id="tickets"></div>
+
+  <div class="btn-row">
+    <a class="btn ghost" href="/login">Sign in</a>
+    <a class="btn" href="/register">Register</a>
+  </div>
+</main>
+<script src="/common.js"></script>
+<script>
+mountNav({ title: 'Demo data', back: '/' });
+let data = null;
+const get = () => (data ? Promise.resolve(data) : api('/api/demo', { noRedirect: true }).then((d) => (data = d)));
+loadInto(document.getElementById('houses'), async () => (await get()).houses,
+  (rows) => `<div class="table-wrap"><table class="table"><thead><tr><th>House</th><th>Ward</th><th>Claim code</th></tr></thead><tbody>${rows.map((h) =>
+    `<tr><td><b>${esc(h.house_id)}</b></td><td>${esc(h.ward)}</td><td class="mono">${esc(h.claim_code)}</td></tr>`).join('')}</tbody></table></div>`,
+  { rows: 3, empty: { icon: 'building', title: 'No unclaimed houses', text: 'Every demo house already has an account.' } });
+loadInto(document.getElementById('tickets'), async () => (await get()).tickets,
+  (rows) => rows.map((t) => `<div class="card" style="margin:8px 0"><div class="row" style="border:0;padding:0;align-items:center"><span><b>${esc(t.bus_number)}</b> &middot; ${esc(t.distance_km)} km &middot; Rs ${esc(t.fare)}</span><button class="btn ghost sm" type="button" data-copy="${esc(t.payload)}">Copy</button></div><div class="mono muted">${esc(t.payload)}</div></div>`).join(''),
+  { rows: 2, empty: { icon: 'ticket', title: 'No demo tickets' } });
+document.addEventListener('click', async (e) => { const b = e.target.closest('[data-copy]'); if (b) { await copyText(b.dataset.copy); toast('Ticket code copied', 'success'); } });
+</script>
+</body></html>

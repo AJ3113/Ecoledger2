@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#B0D68C">
+<title>Sign in - EcoLedger</title>
+<link rel="icon" href="data:,"><link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main class="auth">
+  <div class="auth-card">
+    <div class="auth-icon" data-icon="user" data-size="26"></div>
+    <h1>Welcome back</h1>
+    <p class="lead">Sign in with your phone number to see your green points.</p>
+    <form id="login-form" novalidate>
+      <div class="field">
+        <label for="id">Phone number</label>
+        <input id="id" name="id" type="tel" inputmode="numeric" autocomplete="username" placeholder="10-digit number" aria-describedby="id-error" required>
+        <div class="error" id="id-error" role="alert"></div>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <div class="input-wrap">
+          <input id="password" name="password" type="password" autocomplete="current-password" aria-describedby="password-error" required>
+          <button type="button" class="pw-toggle" data-pw-toggle="password" aria-pressed="false">Show</button>
+        </div>
+        <div class="error" id="password-error" role="alert"></div>
+      </div>
+      <div class="alert error" id="form-error" role="alert" hidden></div>
+      <button class="btn" id="submit" type="submit">Sign in</button>
+    </form>
+    <div class="auth-links">
+      <span>New here? <a href="/register">Create an account</a></span>
+      <span class="muted">Collector or admin? <a href="/collector/login">Collector sign in</a> &middot; <a href="/admin/login">Admin sign in</a></span>
+      <a href="/">&larr; Back to home</a>
+    </div>
+  </div>
+</main>
+<script src="/common.js"></script>
+<script>
+mountNav({ back: '/' });
+wireLogin({
+  role: 'citizen', next: '/dashboard',
+  normalize(v) {
+    const d = v.replace(/[\s-]/g, '');
+    return /^\d{10,15}$/.test(d) ? { value: d } : { error: 'Enter the phone number you registered with (10 digits)' };
+  },
+  failMsg: 'That phone number or password is not right. Please try again.',
+});
+</script>
+</body></html>
